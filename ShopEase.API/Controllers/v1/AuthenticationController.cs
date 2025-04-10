@@ -28,5 +28,12 @@ namespace ShopEase.API.Controllers.v1
             var response = await _authenticationService.Register(request);
             return Ok(response);
         }
+        [HttpPost("refresh-token")]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+        {
+            var result = await _authenticationService.RefreshTokenAsync(request);
+            return Ok(result);
+        }
+
     }
 }

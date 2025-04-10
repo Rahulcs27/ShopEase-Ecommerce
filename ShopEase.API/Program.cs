@@ -4,10 +4,12 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
 using Serilog;
 using ShopEase.API.Helper;
 using ShopEase.API.Middleware;
 using ShopEase.Application;
+using ShopEase.Application.Models;
 using ShopEase.Identity;
 using ShopEase.Identity.Context;
 using ShopEase.Identity.Models;
@@ -22,6 +24,10 @@ namespace ShopEase.API
         {
             var builder = WebApplication.CreateBuilder(args);
             //SERILOG IMPLEMENTATION
+            builder.Services.AddApplicationServices();
+            builder.Services.AddPersistenceServices(builder.Configuration);
+            builder.Services.AddIdentityServices(builder.Configuration);
+            builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
 
 
             IConfiguration configurationBuilder = new ConfigurationBuilder()
@@ -43,7 +49,10 @@ namespace ShopEase.API
                     .WriteTo.Console()
                     .ReadFrom.Configuration(ctx.Configuration));
 
-
+            builder.Services.AddControllers();
+            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddAuthentication(); // For Auth
             builder.Services.AddApiVersioning(options =>
             {
                 options.DefaultApiVersion = new ApiVersion(1, 0);
@@ -57,34 +66,55 @@ namespace ShopEase.API
                 options.SubstituteApiVersionInUrl = true;
             });
 
-            // Add services to the container.
-            builder.Services.AddIdentityServices(builder.Configuration);
-            builder.Services.AddPersistenceServices(builder.Configuration);
-            builder.Services.AddApplicationServices();
-            builder.Services.AddControllers();
-            builder.Services.AddEndpointsApiExplorer();
-            //builder.Services.AddSwaggerGen();
             builder.Services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwaggerOptions>();
-            builder.Services.AddSwaggerGen(options => options.OperationFilter<SwaggerDefaultValues>());
-            var app = builder.Build();
-            IApiVersionDescriptionProvider provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
-            if (app.Environment.IsDevelopment())
+            builder.Services.AddSwaggerGen(options =>
             {
-                app.UseSwagger();
-                app.UseSwaggerUI(
-                   options =>
-                   {
-                       foreach (var description in provider.ApiVersionDescriptions)
-                       {
-                           options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
-                       }
-                   });
-            }
+                options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+                {
+                    Name = "Authorization",
+                    In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+                    Description = "Please enter your token with this format: ''Bearer YOUR_TOKEN''",
+                    Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+                    BearerFormat = "JWT",
+                    Scheme = "bearer"
+
+                });
+                options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+                {
+                    {
+                        new OpenApiSecurityScheme
+                        {
+                            Reference = new OpenApiReference
+                            {
+                                Id = "Bearer",
+                                Type = ReferenceType.SecurityScheme
+                            }
+                        },
+                        new string[] { }
+                    }
+                });
+                options.OperationFilter<SwaggerDefaultValues>();
+            });
+
+            var app = builder.Build();
+
+            // Configure the HTTP request pipeline.
+            IApiVersionDescriptionProvider provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
+            app.UseSwagger();
+            app.UseSwaggerUI(options =>
+            {
+                foreach (var description in provider.ApiVersionDescriptions)
+                {
+                    options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
+                }
+            });
+
+
             app.UseMiddleware<ExceptionMiddleware>();
-
             app.UseHttpsRedirection();
-
+            app.UseAuthentication(); // For Auth
             app.UseAuthorization();
+
 
             app.MapControllers();
 
